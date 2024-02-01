@@ -2,12 +2,10 @@ from fastapi.exception_handlers import (
     request_validation_exception_handler,
 )
 from pprint import pprint
-from fastapi import FastAPI, Request, status, BackgroundTasks
-from fastapi.responses import ORJSONResponse, RedirectResponse
+from fastapi import FastAPI, Request, status
+from fastapi.responses import ORJSONResponse
 from fastapi.exceptions import RequestValidationError
 import httpx
-from exchange.stock.kis import KoreaInvestment
-from exchange.model import MarketOrder, PriceRequest, HedgeData, OrderRequest
 from exchange.utility import (
     settings,
     log_order_message,
@@ -23,39 +21,29 @@ from exchange import get_exchange, log_message, db, settings, get_bot
 import ipaddress
 import os
 
+whitelist = ["52.89.214.238", "34.212.75.30", "54.218.53.128", "52.32.178.7", "127.0.0.1"]
+whitelist = whitelist + settings.WHITELIST
+
+
 VERSION = "0.1.0"
 app = FastAPI(default_response_class=ORJSONResponse)
 
 
-def get_error(e):
-    tb = traceback.extract_tb(e.__traceback__)
-    target_folder = os.path.abspath(os.path.dirname(tb[0].filename))
-    error_msg = []
-
-    for tb_info in tb:
-        # if target_folder in tb_info.filename:
-        error_msg.append(f"File {tb_info.filename}, line {tb_info.lineno}, in {tb_info.name}")
-        error_msg.append(f"  {tb_info.line}")
-
-    error_msg.append(str(e))
-
-    return error_msg
-
-
+'''s
+    starup and shutdown
+'''
 @app.on_event("startup")
 async def startup():
     log_message(f"POTATOBOT 실행 완료! - 버전:{VERSION}")
-
 
 @app.on_event("shutdown")
 async def shutdown():
     db.close()
 
 
-whitelist = ["52.89.214.238", "34.212.75.30", "54.218.53.128", "52.32.178.7", "127.0.0.1"]
-whitelist = whitelist + settings.WHITELIST
-
-
+'''
+    http whitelist ips
+'''
 @app.middleware("http")
 async def whitelist_middleware(request: Request, call_next):
     try:
@@ -69,7 +57,9 @@ async def whitelist_middleware(request: Request, call_next):
         response = await call_next(request)
         return response
 
-
+'''
+    exception handler
+'''
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
     msgs = [f"[에러{index+1}] " + f"{error.get('msg')} \n{error.get('loc')}" for index, error in enumerate(exc.errors())]
@@ -81,22 +71,44 @@ async def validation_exception_handler(request, exc):
     return await request_validation_exception_handler(request, exc)
 
 
+'''
+    get current ip
+'''
 @app.get("/ip")
 async def get_ip():
     data = httpx.get("https://ipv4.jsonip.com").json()["ip"]
     log_message(data)
 
 
-@app.get("/hi")
+'''
+    get health check
+'''
+@app.get("/health")
 async def welcome():
-    return "helloworld"
+    return "check"
 
 
+### func. log
 def log(exchange_name, result, order_info):
     log_order_message(exchange_name, result, order_info)
     print_alert_message(order_info)
 
-
+### func. error log 
 def log_error(error_message, order_info):
     log_order_error_message(error_message, order_info)
     log_alert_message(order_info, "실패")
+
+### func. get error from traceback
+def get_error(e):
+    tb = traceback.extract_tb(e.__traceback__)
+    target_folder = os.path.abspath(os.path.dirname(tb[0].filename))
+    error_msg = []
+
+    for tb_info in tb:
+        # if target_folder in tb_info.filename:
+        error_msg.append(f"File {tb_info.filename}, line {tb_info.lineno}, in {tb_info.name}")
+        error_msg.append(f"  {tb_info.line}")
+
+    error_msg.append(str(e))
+
+    return error_msg
